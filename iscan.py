@@ -3,12 +3,11 @@
 import datetime
 import os
 import shlex
+import shutil
 import subprocess as sp
 import sys
-import xml.etree.ElementTree as ET
-from multiprocessing import Process
+from multiprocessing import Pool, Process
 from pathlib import Path
-from xml.etree.ElementTree import ElementTree
 
 from Bio import SeqIO
 
@@ -25,6 +24,7 @@ LOG = None
 VERBOSE = True
 RM_PIECES = False
 RM_TMP = False
+DEBUG = True
 
 ENCODING = "UTF-8"
 
@@ -72,17 +72,6 @@ def run_log(cmd, input_stream, log=None, verbose=False):
         hlog.close()
 
 
-def merge_ETs(*trees: tuple[ElementTree, ...]) -> ElementTree:
-
-    main_tree = trees[0]
-    base_root = main_tree.getroot()
-
-    for tree in trees[1:]:
-        base_root.extend(tree.getroot())
-
-    return main_tree
-
-
 def create_fifo(path):
     path = Path(path)
     if not path.exists():
@@ -92,35 +81,44 @@ def create_fifo(path):
     return path
 
 
-def xml_cmd_gen(output):
-    return [
-        "interproscan.sh",
-        "--formats",
-        "XML",
-        "--input",
-        "-",
-        "--outfile",
-        f"{output}",
-        "--cpu",
-        f"{CPUS}",
-        "--goterms",
-    ]
+if DEBUG:
 
+    def xml_cmd_gen(output):
+        return ["./debug.sh", f"{output}"]
 
-def tsv_cmd_gen(output):
-    return [
-        "interproscan.sh",
-        "--mode",
-        "convert",
-        "--formats",
-        "TSV",
-        "--input",
-        f"-",
-        "--outfile",
-        f"{output}",
-        "--goterms",
-        "--enable-tsv-residue-annot",
-    ]
+    def tsv_cmd_gen(output):
+        return ["./debug.sh", f"{output}"]
+
+else:
+
+    def xml_cmd_gen(output):
+        return [
+            "interproscan.sh",
+            "--formats",
+            "XML",
+            "--input",
+            "-",
+            "--outfile",
+            f"{output}",
+            "--cpu",
+            f"{CPUS}",
+            "--goterms",
+        ]
+
+    def tsv_cmd_gen(output):
+        return [
+            "interproscan.sh",
+            "--mode",
+            "convert",
+            "--formats",
+            "TSV",
+            "--input",
+            f"-",
+            "--outfile",
+            f"{output}",
+            "--goterms",
+            "--enable-tsv-residue-annot",
+        ]
 
 
 def SeqIO_to_xml(seqs, tmp_faa, tmp_xml, log=None, verbose=False) -> None:
@@ -138,21 +136,37 @@ def SeqIO_to_xml(seqs, tmp_faa, tmp_xml, log=None, verbose=False) -> None:
     p.join()
 
 
-def is_not_empty(path):
-    try:
-        return os.path.getsize(path) > 0
-    except FileNotFoundError:
-        return False
+def xmls_to_tsvs(*xmls, cpus=CPUS):
+    xmls = [Path(xml) for xml in xmls]
+    tsvs = [f"{xml.stem}.tsv" for xml in xmls]
+    input_output_pairs = zip(xmls, tsvs)
+
+    def worker(input_stream, output_stream):
+        cmd = tsv_cmd_gen(output_stream)
+        run_log(cmd, input_stream, log=LOG, verbose=VERBOSE)
+        return Path(output_stream)
+
+    with Pool(cpus) as pool:
+        results = pool.starmap(worker, input_output_pairs)
+
+    results = list(results)
+    for result in results:
+        assert result.exists(), f"Non-existent {result}"
+    return results
 
 
-def xmls_to_tsv(xmls, cpus=CPUS):
-    pass
+def cat(*files, output=OUT_TSV) -> None:
+
+    with open(output, "wb") as hout:
+        for file in files:
+            with open(file, "rb") as hfile:
+                shutil.copyfileobj(hfile, hout)
 
 
 if __name__ == "__main__":
 
     assert INPUT_FAA.exists(), f"File Error: {INPUT_FAA} does NOT exists."
-    PIECES_DIR.mkdir(exists_ok=True, parents=True)
+    PIECES_DIR.mkdir(exist_ok=True, parents=True)
 
     in_faa = SeqIO.parse(INPUT_FAA, format="fasta")
     tmp_faa = create_fifo(TMP_FAA)
@@ -164,27 +178,27 @@ if __name__ == "__main__":
         seq_batch.append(seq)
 
         if (idx + 1) % BATCH_SIZE == 0:
-            ixml += i
+            ixml += 1
             out_xml = PIECES_DIR / f"{ixml}.xml"
 
-            SeqIO_to_XML(seq_batch, TMP_FAA, out_xml, LOG, VERBOSE)
-            assert is_not_empty(out_xml)
+            SeqIO_to_xml(seq_batch, TMP_FAA, out_xml, LOG, VERBOSE)
+            assert out_xml.exists(), f"Non-existent {out_xml}"
 
             xmls.append(out_xml)
             seq_batch = []
 
     if len(seq_batch) > 0:
-        ixml += i
+        ixml += 1
         out_xml = PIECES_DIR / f"{ixml}.xml"
 
-        SeqIO_to_XML(seq_batch, TMP_FAA, out_xml, LOG, VERBOSE)
-        assert is_not_empty(out_xml)
+        SeqIO_to_xml(seq_batch, TMP_FAA, out_xml, LOG, VERBOSE)
+        assert out_xml.exists(), f"Non-existent {out_xml}"
 
         xmls.append(out_xml)
         del seq_batch
 
-    tsv_cmd = tsv_cmd_gen(OUT_TSV)
-    run_log(tsv_cmd, OUT_XML, LOG, VERBOSE)
+    tsvs = xmls_to_tsvs(*xmls)
+    cat(tsvs)
 
     if RM_TMP:
         TMP_FAA.unlink()
