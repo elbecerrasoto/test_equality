@@ -136,20 +136,20 @@ def SeqIO_to_xml(seqs, tmp_faa, tmp_xml, log=None, verbose=False) -> None:
     p.join()
 
 
+def worker_xmls_to_tsvs(input_stream, output_stream):
+    cmd = tsv_cmd_gen(output_stream)
+    run_log(cmd, input_stream, log=LOG, verbose=VERBOSE)
+    return Path(output_stream)
+
+
 def xmls_to_tsvs(*xmls, cpus=CPUS):
     xmls = [Path(xml) for xml in xmls]
     tsvs = [f"{xml.stem}.tsv" for xml in xmls]
     input_output_pairs = zip(xmls, tsvs)
 
-    def worker(input_stream, output_stream):
-        cmd = tsv_cmd_gen(output_stream)
-        run_log(cmd, input_stream, log=LOG, verbose=VERBOSE)
-        return Path(output_stream)
-
     with Pool(cpus) as pool:
-        results = pool.starmap(worker, input_output_pairs)
+        results = pool.starmap(worker_xmls_to_tsvs, input_output_pairs)
 
-    results = list(results)
     for result in results:
         assert result.exists(), f"Non-existent {result}"
     return results
@@ -198,7 +198,7 @@ if __name__ == "__main__":
         del seq_batch
 
     tsvs = xmls_to_tsvs(*xmls)
-    cat(tsvs)
+    cat(*tsvs)
 
     if RM_TMP:
         TMP_FAA.unlink()
