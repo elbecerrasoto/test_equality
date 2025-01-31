@@ -23,8 +23,8 @@ TMP_FAA = PIECES_DIR / "tmp.faa"
 LOG = None
 VERBOSE = True
 RM_PIECES = False
-RM_TMP = False
-DEBUG = True
+RM_TMP = True
+DEBUG = False
 
 ENCODING = "UTF-8"
 

@@ -10,12 +10,11 @@ CPU=12
 interproscan.sh --formats XML\
     --input "$IN_FAA"\
     --outfile "$OUT_XML"\
-    --cpu 12 --tempdir "$TMP"\
+    --cpu 12\
     --goterms
 
 interproscan.sh --mode convert\
     --formats TSV\
     --input "$OUT_XML"\
     --outfile "$OUT_TSV"\
-    --tempdir "$TMP"\
     --goterms --enable-tsv-residue-annot

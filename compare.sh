@@ -6,11 +6,12 @@ wholes=( whole.tsv whole.xml )
 
 BATCH=320
 
-echo ./iscan.py 12 /tmp "$BATCH" "$IN" "${parts[0]}" "${parts[1]}"
-./iscan.py 12 /tmp "$BATCH" "$IN" "${parts[0]}" "${parts[1]}"
+echo ./iscan.py 12 "$BATCH" "Pieces" "$IN" "${parts[0]}"
+     ./iscan.py 12 "$BATCH" "Pieces" "$IN" "${parts[0]}"
+
+sort -n "${parts[0]}" > "${parts[0]}.sorted"
 
 echo ./iscan.sh "$IN" "${wholes[0]}" "${wholes[1]}"
-./iscan.sh "$IN" "${wholes[0]}" "${wholes[1]}"
+     ./iscan.sh "$IN" "${wholes[0]}" "${wholes[1]}"
 
-# diff -s "${parts[1]}" "${wholes[1]}"
-# diff -s "${parts[2]}" "${wholes[2]}"
+sort -n "${wholes[0]}" > "${wholes[0]}.sorted"
