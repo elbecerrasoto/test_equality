@@ -11,12 +11,14 @@ from pathlib import Path
 
 from Bio import SeqIO
 
-CPUS = int(sys.argv[1])  # os.cpu_count()
+DEBUG = bool(sys.argv[1])
 BATCH_SIZE = int(sys.argv[2])
-PIECES_DIR = Path(sys.argv[3])
 
-INPUT_FAA = Path(sys.argv[4])
-OUT_TSV = Path(sys.argv[5])
+INPUT_FAA = Path(sys.argv[3])
+OUT_TSV = Path(sys.argv[4])
+
+CPUS = os.cpu_count()  # int(sys.argv[2])
+PIECES_DIR = Path("pieces")
 
 TMP_FAA = PIECES_DIR / "tmp.faa"
 
@@ -24,7 +26,6 @@ LOG = None
 VERBOSE = True
 RM_PIECES = False
 RM_TMP = True
-DEBUG = False
 
 ENCODING = "UTF-8"
 
@@ -83,11 +84,21 @@ def create_fifo(path):
 
 if DEBUG:
 
+    DEBUG_PATH = Path("debug.sh")
+    DEBUG_SCRIPT = """
+    #!/usr/bin/env sh
+    OUT="$1"
+    cat /dev/stdin > "$OUT"
+    """
+
+    with open(DEBUG_PATH, "w") as debugh:
+        debugh.write(DEBUG_SCRIPT)
+
     def xml_cmd_gen(output):
-        return ["./debug.sh", f"{output}"]
+        return ["bash", str(DEBUG_PATH), str(output)]
 
     def tsv_cmd_gen(output):
-        return ["./debug.sh", f"{output}"]
+        return ["bash", str(DEBUG_PATH), str(output)]
 
 else:
 
@@ -144,7 +155,7 @@ def worker_xmls_to_tsvs(input_stream, output_stream):
 
 def xmls_to_tsvs(*xmls, cpus=CPUS):
     xmls = [Path(xml) for xml in xmls]
-    tsvs = [f"{xml.stem}.tsv" for xml in xmls]
+    tsvs = [f"{xml.parent / xml.stem}.tsv" for xml in xmls]
     input_output_pairs = zip(xmls, tsvs)
 
     with Pool(cpus) as pool:
