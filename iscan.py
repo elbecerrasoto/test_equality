@@ -11,7 +11,7 @@ from pathlib import Path
 
 from Bio import SeqIO
 
-DEBUG = bool(sys.argv[1])
+DEBUG = sys.argv[1] == "True"
 BATCH_SIZE = int(sys.argv[2])
 
 INPUT_FAA = Path(sys.argv[3])
@@ -21,8 +21,10 @@ CPUS = os.cpu_count()  # int(sys.argv[2])
 PIECES_DIR = Path("pieces")
 
 TMP_FAA = PIECES_DIR / "fifo.faa"
+DEBUG_PATH = PIECES_DIR / Path("debug.sh")
 
 RM_FAA = True
+RM_DEBUG = True
 RM_PIECES = False
 
 LOG = None
@@ -85,7 +87,6 @@ def create_fifo(path):
 
 if DEBUG:
 
-    DEBUG_PATH = Path("debug.sh")
     DEBUG_SCRIPT = """
     #!/usr/bin/env sh
     OUT="$1"
@@ -211,6 +212,9 @@ if __name__ == "__main__":
 
     tsvs = xmls_to_tsvs(*xmls)
     cat(*tsvs)
+
+    if RM_DEBUG:
+        DEBUG_PATH.unlink()
 
     if RM_FAA:
         TMP_FAA.unlink()

@@ -4,9 +4,6 @@ IN_FAA="$1"
 OUT_TSV="$2"
 OUT_XML="$3"
 
-TMP="/tmp"
-CPU=12
-
 interproscan.sh --formats XML\
     --input "$IN_FAA"\
     --outfile "$OUT_XML"\
