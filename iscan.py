@@ -17,10 +17,9 @@ BATCH_SIZE = int(sys.argv[2])
 INPUT_FAA = Path(sys.argv[3])
 OUT_TSV = Path(sys.argv[4])
 
-CPUS = os.cpu_count()  # int(sys.argv[2])
+CPUS = os.cpu_count()
 PIECES_DIR = Path("pieces")
 
-TMP_FAA = PIECES_DIR / "fifo.faa"
 DEBUG_PATH = PIECES_DIR / Path("debug.sh")
 
 RM_FAA = True
@@ -76,15 +75,6 @@ def run_log(cmd, input_stream, log=None, verbose=False):
         hlog.close()
 
 
-def create_fifo(path):
-    path = Path(path)
-    if not path.exists():
-        os.mkfifo(path)
-    if not path.is_fifo():
-        raise FileExistsError(f"{path} already exists and it is not a FIFO.")
-    return path
-
-
 if DEBUG:
 
     DEBUG_SCRIPT = """
@@ -136,17 +126,16 @@ else:
 
 def SeqIO_to_xml(seqs, tmp_faa, tmp_xml, log=None, verbose=False) -> None:
 
-    def faa_writer():
-        with open(tmp_faa, "w", encoding=ENCODING) as hfaa:
-            SeqIO.write(seqs, hfaa, "fasta")
-
-    p = Process(target=faa_writer)
-    p.start()
+    with open(tmp_faa, "w", encoding=ENCODING) as hfaa:
+        SeqIO.write(seqs, hfaa, "fasta")
 
     xml_cmd = xml_cmd_gen(tmp_xml)
     run_log(xml_cmd, tmp_faa, log, verbose)
 
-    p.join()
+    assert tmp_xml.exists(), f"Non-existent {tmp_xml}"
+    assert tmp_faa.exists(), f"Non-existent {tmp_faa}"
+
+    return tmp_xml
 
 
 def worker_xmls_to_tsvs(input_stream, output_stream):
@@ -176,19 +165,10 @@ def cat(*files, output=OUT_TSV) -> None:
                 shutil.copyfileobj(hfile, hout)
 
 
-def batch_work(seq_batch, ibatch):
-    out_xml = PIECES_DIR / f"{ibatch}.xml"
-    SeqIO_to_xml(seq_batch, TMP_FAA, out_xml, LOG, VERBOSE)
-    assert out_xml.exists(), f"Non-existent {out_xml}"
-
-    return out_xml
-
-
 if __name__ == "__main__":
 
     assert INPUT_FAA.exists(), f"File Error: {INPUT_FAA} does NOT exists."
     PIECES_DIR.mkdir(exist_ok=True, parents=True)
-    create_fifo(TMP_FAA)
 
     in_faa = SeqIO.parse(INPUT_FAA, format="fasta")
     seq_batch = []
@@ -200,23 +180,30 @@ if __name__ == "__main__":
 
         if (idx + 1) % BATCH_SIZE == 0:
             ibatch += 1
-            pxml = batch_work(seq_batch, ibatch)
+
+            out_faa = PIECES_DIR / f"{ibatch}.faa"
+            out_xml = PIECES_DIR / f"{ibatch}.xml"
+
+            pxml = SeqIO_to_xml(seq_batch, out_faa, out_xml, LOG, VERBOSE)
             xmls.append(pxml)
             seq_batch = []
 
     if len(seq_batch) > 0:
         ibatch += 1
-        pxml = batch_work(seq_batch, ibatch)
+
+        out_faa = PIECES_DIR / f"{ibatch}.faa"
+        out_xml = PIECES_DIR / f"{ibatch}.xml"
+
+        pxml = SeqIO_to_xml(seq_batch, out_faa, out_xml, LOG, VERBOSE)
+
         xmls.append(pxml)
         del seq_batch
 
     tsvs = xmls_to_tsvs(*xmls)
     cat(*tsvs)
 
-    if RM_DEBUG:
+    if DEBUG and RM_DEBUG:
         DEBUG_PATH.unlink()
 
-    if RM_FAA:
-        TMP_FAA.unlink()
     if RM_PIECES:
         shutil.rmtree(PIECES_DIR)
