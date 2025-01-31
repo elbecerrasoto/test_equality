@@ -6,7 +6,7 @@ import shlex
 import shutil
 import subprocess as sp
 import sys
-from multiprocessing import Pool
+from multiprocessing import Pool, Process
 from pathlib import Path
 
 from Bio import SeqIO
@@ -20,10 +20,13 @@ OUT_TSV = Path(sys.argv[4])
 CPUS = os.cpu_count()  # int(sys.argv[2])
 PIECES_DIR = Path("pieces")
 
+TMP_FAA = PIECES_DIR / "fifo.faa"
+
+RM_FAA = True
+RM_PIECES = False
+
 LOG = None
 VERBOSE = True
-RM_PIECES = False
-RM_TMP = True
 
 ENCODING = "UTF-8"
 
@@ -71,13 +74,13 @@ def run_log(cmd, input_stream, log=None, verbose=False):
         hlog.close()
 
 
-# def create_fifo(path):
-#     path = Path(path)
-#     if not path.exists():
-#         os.mkfifo(path)
-#     if not path.is_fifo():
-#         raise FileExistsError(f"{path} already exists and it is not a FIFO.")
-#     return path
+def create_fifo(path):
+    path = Path(path)
+    if not path.exists():
+        os.mkfifo(path)
+    if not path.is_fifo():
+        raise FileExistsError(f"{path} already exists and it is not a FIFO.")
+    return path
 
 
 if DEBUG:
@@ -132,11 +135,17 @@ else:
 
 def SeqIO_to_xml(seqs, tmp_faa, tmp_xml, log=None, verbose=False) -> None:
 
-    with open(tmp_faa, "w", encoding=ENCODING) as hfaa:
-        SeqIO.write(seqs, hfaa, "fasta")
+    def faa_writer():
+        with open(tmp_faa, "w", encoding=ENCODING) as hfaa:
+            SeqIO.write(seqs, hfaa, "fasta")
+
+    p = Process(target=faa_writer)
+    p.start()
 
     xml_cmd = xml_cmd_gen(tmp_xml)
     run_log(xml_cmd, tmp_faa, log, verbose)
+
+    p.join()
 
 
 def worker_xmls_to_tsvs(input_stream, output_stream):
@@ -167,20 +176,18 @@ def cat(*files, output=OUT_TSV) -> None:
 
 
 def batch_work(seq_batch, ibatch):
-    out_faa = PIECES_DIR / f"{ibatch}.faa"
     out_xml = PIECES_DIR / f"{ibatch}.xml"
-
-    SeqIO_to_xml(seq_batch, out_faa, out_xml, LOG, VERBOSE)
-    assert out_faa.exists(), f"Non-existent {out_faa}"
+    SeqIO_to_xml(seq_batch, TMP_FAA, out_xml, LOG, VERBOSE)
     assert out_xml.exists(), f"Non-existent {out_xml}"
 
-    return (out_faa, out_xml)
+    return out_xml
 
 
 if __name__ == "__main__":
 
     assert INPUT_FAA.exists(), f"File Error: {INPUT_FAA} does NOT exists."
     PIECES_DIR.mkdir(exist_ok=True, parents=True)
+    create_fifo(TMP_FAA)
 
     in_faa = SeqIO.parse(INPUT_FAA, format="fasta")
     seq_batch = []
@@ -192,18 +199,20 @@ if __name__ == "__main__":
 
         if (idx + 1) % BATCH_SIZE == 0:
             ibatch += 1
-            pfaa, pxml = batch_work(seq_batch, ibatch)
+            pxml = batch_work(seq_batch, ibatch)
             xmls.append(pxml)
             seq_batch = []
 
     if len(seq_batch) > 0:
         ibatch += 1
-        pfaa, pxml = batch_work(seq_batch, ibatch)
+        pxml = batch_work(seq_batch, ibatch)
         xmls.append(pxml)
         del seq_batch
 
     tsvs = xmls_to_tsvs(*xmls)
     cat(*tsvs)
 
+    if RM_FAA:
+        TMP_FAA.unlink()
     if RM_PIECES:
         shutil.rmtree(PIECES_DIR)
